@@ -18,10 +18,11 @@ func FileInfo(fileName, fileHash string, fileSize int) []byte {
 	return buffer.Bytes()
 }
 
-func Sha256String(str string) string {
+func Sha256String(str string) []byte {
 	h := sha256.New()
 	h.Write([]byte(str))
-	return fmt.Sprintf("%x", h.Sum(nil))
+	sum := h.Sum(nil)
+	return sum
 }
 func Sha256File(filepath string) string {
 	f, err := os.Open(filepath)
