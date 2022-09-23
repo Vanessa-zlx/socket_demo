@@ -25,29 +25,7 @@ var (
 	password = "tsgmftwiofimdeah"
 )
 
-func mac() {
-	// 获取本机的MAC地址
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		panic("Poor soul, here is what you got: " + err.Error())
-	}
-	inter := interfaces[0]
-	fmt.Println(inter.Name)
-	fmt.Println("MAC", inter.HardwareAddr)
-}
-func getExternalIPv4() string {
-	resp, err := http.Get("http://myexternalip.com/raw")
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	content, _ := ioutil.ReadAll(resp.Body)
-	//buf := new(bytes.Buffer)
-	//buf.ReadFrom(resp.Body)
-	//s := buf.String()
-	return string(content)
-}
-func getMyIPV6() string {
+func GetMyIPV6() string {
 	s, err := net.InterfaceAddrs()
 	if err != nil {
 		return ""
@@ -60,21 +38,25 @@ func getMyIPV6() string {
 	}
 	return ""
 }
-func getCode() string {
+func GetCode() string {
 	var code string
-	for i := 0; i < 6; i++ {
-		rand.Seed(time.Now().Unix())
-		code += strconv.Itoa(rand.Int() % 10)
-		time.Sleep(time.Second)
+	//for i := 0; i < 6; i++ {
+	rand.Seed(time.Now().Unix() + 2004)
+	codeNum := rand.Int() % 1000000
+	if codeNum < 100000 {
+		codeNum += 100000
 	}
-	message := `
-    <p> 你好 %s,</p>
-
-		<p style="text-indent:2em">您的验证码是: ` + code + ` ,十五分钟内有效。</p>
-		<p style="text-indent:2em">请勿将此码告诉他人!</P>
-		<p style="text-indent:2em">Best Wishes!</p>
-	`
-	return message
+	code += strconv.Itoa(codeNum)
+	//time.Sleep(time.Second)
+	//}
+	//message := `
+	//<p> 你好 %s,</p>
+	//
+	//	<p style="text-indent:2em">您的验证码是: ` + code + ` ,十五分钟内有效。</p>
+	//	<p style="text-indent:2em">请勿将此码告诉他人!</P>
+	//	<p style="text-indent:2em">Best Wishes!</p>
+	//`
+	return code
 }
 func sendTextEmail(msg, sendTo string) {
 
@@ -105,13 +87,38 @@ func sendTextEmail(msg, sendTo string) {
 		panic(err)
 	}
 }
-func sendCodeMessage(code, sendTo string) {
+func SendCodeMessage(sendTo string) string {
+	code := GetCode()
 	message := `
     <p> 你好 %s,</p>
 
-		<p style="text-indent:2em">您的验证码是: ` + code + ` ,十五分钟内有效。</p>
+		<p style="text-indent:2em">您的验证码是: ` + code + ` ,5分钟内有效。</p>
 		<p style="text-indent:2em">请勿将此码告诉他人!</P>
 		<p style="text-indent:2em">Best Wishes!</p>
 	`
 	sendTextEmail(message, sendTo)
+	return code
+}
+
+func mac() {
+	// 获取本机的MAC地址
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		panic("Poor soul, here is what you got: " + err.Error())
+	}
+	inter := interfaces[0]
+	fmt.Println(inter.Name)
+	fmt.Println("MAC", inter.HardwareAddr)
+}
+func getExternalIPv4() string {
+	resp, err := http.Get("http://myexternalip.com/raw")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	content, _ := ioutil.ReadAll(resp.Body)
+	//buf := new(bytes.Buffer)
+	//buf.ReadFrom(resp.Body)
+	//s := buf.String()
+	return string(content)
 }

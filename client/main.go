@@ -1,8 +1,7 @@
-package main
+package client
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"learnGo/package/socket_demo/utils"
@@ -13,120 +12,16 @@ import (
 	"time"
 )
 
-var serverNATAddr, serverNATPort = "218.89.171.148", "25118"
-
-type STATUS = int
-
-type MODE = int
-
-const (
-	SUCCESS STATUS = iota
-	SERVER
-	LOCALE
-	UNKNOWN
-)
-const (
-	COMMAND MODE = iota
-	GLOBAL
-	FILE
-)
-
-var ALIVE = UNKNOWN
+//var serverNATAddr, serverNATPort = "218.89.171.148", "25118"
+var serverNATAddr, serverNATPort = "127.0.0.1", "20000"
 
 var wg sync.WaitGroup
-var mux sync.Mutex
-var live sync.Mutex
+var STAT sync.Mutex
+var LIVE sync.Mutex
 
 //var serverIPv6Addr, serverIPv6Port = []string{"2409:8a60:1e74:15f1:6183:a810:5d4a:ea7d",
 //	"2409:8a60:1e74:15f1:82cb:c469:ed53:2"}, "20000"
 
-func accessMessagePacket(msg string, mode MODE) []byte {
-	size := len([]byte(msg))
-	raw := bytes.Buffer{}
-	raw.Write([]byte{byte(mode), byte(size / 100), byte(size % 100 / 10), byte(size % 10)})
-	raw.Write([]byte(msg)[:len(msg)])
-	//fmt.Println(raw.Bytes()) //
-	cipherData := utils.Encipher(raw.Bytes(), []byte(utils.Sha256String(msg)), 304)
-	buffer := bytes.Buffer{}
-	buffer.Write(utils.Sha256String(msg)) //32
-	buffer.Write(cipherData)              //304
-	return buffer.Bytes()
-}
-func send(str string, conn net.Conn, status *STATUS, mode MODE) {
-	defer wg.Done()
-
-	/*
-		第一次检查连接状态——处理信息前
-	*/
-	mux.Lock()
-	if *status != SUCCESS {
-		mux.Unlock()
-		fmt.Println("not allowed to send ")
-		return
-	}
-	mux.Unlock()
-
-	packet := accessMessagePacket(str, mode)
-	/*
-		第二次检查连接状态——处理信息后
-	*/
-	mux.Lock()
-	if *status != SUCCESS {
-		mux.Unlock()
-		fmt.Println("not allowed to send ")
-		return
-	}
-	mux.Unlock()
-
-	_, err := conn.Write(packet)
-	if err != nil {
-
-		/*
-			发送失败，修改连接状态
-		*/
-		mux.Lock()
-		if *status == UNKNOWN {
-			mux.Unlock()
-			return
-		} else {
-			*status = UNKNOWN
-			mux.Unlock()
-			fmt.Println("send failed ")
-			return
-		}
-	}
-
-}
-func receive(conn net.Conn, status *STATUS) {
-	for {
-		buf := make([]byte, 1024)
-		_, err := conn.Read(buf[:])
-		if err != nil {
-			mux.Lock()
-			*status = UNKNOWN
-			mux.Unlock()
-			//fmt.Println("receive failed,err: ", err)
-			return
-		}
-		rawData := utils.Decipher(buf[32:336], buf[:32], 304)
-		length := int(rawData[33])*100 + int(rawData[34])*10 + int(rawData[35])
-		msg := string(rawData[36 : 36+length])
-		switch rawData[32] {
-		case 0:
-			switch msg {
-			case "ok":
-				live.Lock()
-				ALIVE = SUCCESS
-				live.Unlock()
-				//fmt.Println("alive")
-			default:
-				fmt.Println(msg)
-			}
-		case 1:
-			fmt.Println(msg)
-		}
-	}
-}
 func SendFile(filePath string, conn net.Conn) STATUS {
 	var str string
 	fmt.Print("请输入文件的完整路径：")
@@ -185,152 +80,151 @@ func SendFile(filePath string, conn net.Conn) STATUS {
 		fmt.Println("文件上传：" + value + "%")
 	}
 }
-func main() {
+func register(this *Client) bool {
+
+	fmt.Println("Please input you email:(q to quit)")
+	email := utils.GetEmailInput()
+	if email == "" {
+		return false
+	}
+
+	fmt.Println("Please set your password(no less than 8 letters,q to quit)")
+	passHash := utils.GetPassHashInput()
+	if passHash == "" {
+		return false
+	}
+	fmt.Println("Please input you password again: (q to quit)")
 	for {
-		os.Stdout.Write([]byte{0x1B, 0x5B, 0x33, 0x3B, 0x4A, 0x1B, 0x5B, 0x48, 0x1B, 0x5B, 0x32, 0x4A})
-		var choice int
-		fmt.Println("Hello, what do you want to do ?")
-		fmt.Println("	0:	register")
-		fmt.Println("	1:	global chat	(less than 100 Chinese character/300 English letter) ")
-		fmt.Println("	2:	send file")
-		fmt.Println("choose 0 or 1:")
-		_, err := fmt.Scanln(&choice)
-		if err != nil {
-			fmt.Println("input failed			")
+		passHashAgain := utils.GetPassHashInput()
+		if passHashAgain == "" {
+			return false
+		}
+		if passHashAgain == passHash {
+			break
+		}
+	}
+
+	this.check = make(chan string, 1)
+	wg.Add(1)
+	this.send(passHash+email, utils.REGISTER1, this)
+
+	this.waitTime = time.Now().Unix()
+	go this.timeOut(time.Duration(300)*time.Second, this)
+	switch <-this.check {
+	case "exist":
+		fmt.Println("email already exist !")
+		return false
+	case "code":
+	default:
+		fmt.Println("sorry this email cant be registered")
+		return false
+	}
+	fmt.Println("Please check your mailbox for new or last email(300 seconds) ")
+	for {
+		fmt.Println(" Then input the right auth code:(q to quit)")
+		var code string
+		fmt.Scanln(&code)
+		if strings.ToUpper(code) == "Q" {
+			return false
+		}
+		if len(code) != 6 {
 			continue
 		}
-		switch choice {
-		case 0:
-			chat(serverNATAddr+":"+serverNATPort, COMMAND)
-		case 1:
-			chat(serverNATAddr+":"+serverNATPort, GLOBAL)
-		case 2:
-			os.Stdout.Write([]byte{0x1B, 0x5B, 0x33, 0x3B, 0x4A, 0x1B, 0x5B, 0x48, 0x1B, 0x5B, 0x32, 0x4A})
-			fmt.Println("不好意思还没做,嘿嘿嘿")
-			time.Sleep(time.Second * time.Duration(2))
-		}
-	}
-}
-func keepLive(conn net.Conn, status *STATUS) {
-	go func(conn net.Conn, status *STATUS) {
-		for {
-			live.Lock()
-			if ALIVE != SUCCESS {
-				live.Unlock()
-				mux.Lock()
-				*status = SERVER
-				mux.Unlock()
-				//fmt.Println("not alive")
-				return
-			}
-			live.Unlock()
-			live.Lock()
-			ALIVE = UNKNOWN
-			live.Unlock()
-			if *status == LOCALE {
-				*status = SUCCESS
-			}
-			time.Sleep(time.Second * time.Duration(10))
-		}
-	}(conn, status)
-
-	time.Sleep(time.Second)
-	go func(conn net.Conn, status *STATUS) {
-		for {
-			if *status != SUCCESS {
-				return
-			}
-			//fmt.Println("running auto keep alive")
-			wg.Add(1)
-			go send("alive", conn, status, COMMAND)
-			time.Sleep(time.Second * time.Duration(5))
-		}
-	}(conn, status)
-
-}
-func chat(DialServer string, mode MODE) {
-	var status STATUS = LOCALE
-	for {
-		//os.Stdout.Write([]byte{0x1B, 0x5B, 0x33, 0x3B, 0x4A, 0x1B, 0x5B, 0x48, 0x1B, 0x5B, 0x32, 0x4A})
-		/*
-			连接远程穿透端口
-		*/
-		conn, err := net.Dial("tcp", DialServer)
-		if err != nil {
-			fmt.Println("can not start chat, err:				", err)
-			mux.Lock()
-			status = UNKNOWN
-			mux.Unlock()
-			break
-		}
-
-		/*
-			向服务器发起第一次连接
-		*/
-		fmt.Println("connecting to server...")
 		wg.Add(1)
-		go send("alive", conn, new(STATUS), mode)
-		go receive(conn, &status)
-		time.Sleep(time.Second)
-		keepLive(conn, &status)
-		time.Sleep(time.Second)
-		mux.Lock()
-		if status != SUCCESS {
-			mux.Unlock()
-			/*
-				第一次连接失败，返回主页面
-			*/
-			fmt.Println("connect failed")
+		this.send(code+passHash+this.Id, utils.REGISTER2, this)
+		if <-this.check == "ok" {
+			fmt.Println("Register success!")
+			time.Sleep(time.Second)
+			this.waitTime = 0
 			break
 		}
-		mux.Unlock()
-		defer conn.Close()
+		fmt.Println("wrong code ! try again?")
+		time.Sleep(time.Second * time.Duration(2))
+		continue
+	}
 
-		/*
-			循环发送消息
-		*/
-		inputReader := bufio.NewReader(os.Stdin)
-		for {
-			var inputInfo string
-			fmt.Println("You can send now:               ")
-			for {
-				input, err := inputReader.ReadString('\n')
-				if err != nil {
-					fmt.Println("input err							")
-				}
-				inputInfo = strings.Trim(input, "\r\n")
-				if inputInfo != "" {
-					break
-				}
-			}
-			if strings.ToUpper(inputInfo) == "Q" {
-				mux.Lock()
-				status = LOCALE
-				mux.Unlock()
-				break
-			} else {
+	return true
+}
+func login(this *Client) bool {
+	fmt.Println("Please input you email:(q to quit)")
+	email := utils.GetEmailInput()
+	if email == "" {
+		return false
+	}
+	fmt.Println("Please input you password:(q to quit)")
+	passHash := utils.GetPassHashInput()
+	if passHash == "" {
+		return false
+	}
 
-				/*
-					发消息前检测连接状态
-				*/
-				mux.Lock()
-				if status != SUCCESS {
-					mux.Unlock()
-					fmt.Println("connect failed ")
-					break
-				}
-				mux.Unlock()
-				wg.Add(1)
-				go send(inputInfo, conn, &status, mode)
-			}
-		}
+	wg.Add(1)
+	go this.send(passHash+email, utils.LOGIN, this)
 
-		/*
-			等待各个发送任务结束
-		*/
-		fmt.Println("quiting")
-		wg.Wait()
+	switch <-this.auth {
+	case "notFound":
+		fmt.Println("this email have not been registered!")
+		return false
+	case "wrongPass":
+		fmt.Println("wrong password !")
+		return false
+	case "auth":
+		fmt.Println("login success !")
+		this.auth <- "true"
+	}
 
+	return true
+}
+func (*Client) connect(DialServer string, this *Client) {
+	this.status = LOCALE
+	this.alive = UNKNOWN
+	this.auth = make(chan string, 1)
+	/*连接远程穿透端口*/
+	//os.Stdout.Write([]byte{0x1B, 0x5B, 0x33, 0x3B, 0x4A, 0x1B, 0x5B, 0x48, 0x1B, 0x5B, 0x32, 0x4A})
+	conn, err := net.Dial("tcp", DialServer)
+	if err != nil {
+		fmt.Println("cant start connect, err:				", err, "\nconn:", conn)
+		this.changeStatus(UNKNOWN, this)
 		return
 	}
+	this.conn = conn
+	/*向服务器发起第一次连接*/
+	this.init(this)
+	if !this.isConnValid(this) {
+		return
+	}
+
+	defer conn.Close()
+	/*登录注册*/
+	var choice int
+	for {
+		os.Stdout.Write([]byte{0x1B, 0x5B, 0x33, 0x3B, 0x4A, 0x1B, 0x5B, 0x48, 0x1B, 0x5B, 0x32, 0x4A})
+		fmt.Println("[----->]\nhello,come and join us ! :\n" + ">>register\t0\n>>login    \t1\t(others to quit)\n[<-----]")
+		_, err := fmt.Scanln(&choice)
+		if err != nil {
+			continue
+		}
+		if this.registerWindowCheck(choice, this) {
+			break
+		}
+	}
+	inputReader := bufio.NewReader(os.Stdin)
+	
+	/*循环发送消息*/
+	for {
+		if this.inputAndSend(this, inputReader) {
+			break
+		}
+	}
+	/*等待各个发送任务结束*/
+	fmt.Println("quiting...")
+	wg.Wait()
+	return
+
+}
+func Start() {
+	cli := new(Client)
+	cli.connect(serverNATAddr+":"+serverNATPort, cli)
+}
+func main() {
+	Start()
 }
