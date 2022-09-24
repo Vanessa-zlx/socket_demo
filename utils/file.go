@@ -46,6 +46,20 @@ func Sha256File(filepath string) string {
 
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
+func ProcessFilePacket(piece []byte, mode MODE) []byte {
+	size := len(piece)
+	if size > 900 {
+		return nil
+	}
+	raw := bytes.Buffer{}
+	raw.Write([]byte{mode, byte(size / 100), byte(size % 100 / 10), byte(size % 10)})
+	raw.Write(piece)
+	cipherData := Encipher(raw.Bytes(), Sha256Bytes(piece), 968)
+	buffer := bytes.Buffer{}
+	buffer.Write(Sha256Bytes(piece)) //32
+	buffer.Write(cipherData)         //968=1+4+900+64
+	return buffer.Bytes()
+}
 func ProcessMessagePacket(msg string, mode MODE) []byte {
 	size := len([]byte(msg))
 	raw := bytes.Buffer{}

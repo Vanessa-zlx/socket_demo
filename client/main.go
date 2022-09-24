@@ -208,7 +208,7 @@ func (*Client) connect(DialServer string, this *Client) {
 		}
 	}
 	inputReader := bufio.NewReader(os.Stdin)
-	
+
 	/*循环发送消息*/
 	for {
 		if this.inputAndSend(this, inputReader) {

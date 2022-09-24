@@ -37,7 +37,12 @@ func receiveAndAnswer(conn net.Conn) {
 			return
 		}
 		buf := make([]byte, 1024)
-		_, err := conn.Read(buf[:])
+		n, err := conn.Read(buf[:])
+		if n < 50 {
+			fmt.Println(string(buf[:]))
+			conn.Write([]byte("你在赣神魔"))
+			return
+		}
 		if err != nil {
 			fmt.Println("receive from client failed ,err: ", err, "\ndestroy:"+action.cli.Id)
 			return
@@ -96,10 +101,11 @@ func serveIPV4() {
 func Start() {
 	serveIPV4()
 }
-func main() {
-	Start()
-	//clearUsers()
-}
+
+//func main() {
+//	Start()
+//	//clearUsers()
+//}
 
 func serveIPv6() {
 	serverIPv6 := "[" + utils.GetMyIPV6() + "]:20000"
